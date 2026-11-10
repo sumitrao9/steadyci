@@ -1,0 +1,6 @@
+# SteadyCI configuration (optional)
+[steadyci]
+# fail_on = "error"   # error|warn|none
+# ignore_rules = ["COST001"]
+# ignore_paths = ["vendor/"]
+# baseline_file = "steadyci-baseline.json"

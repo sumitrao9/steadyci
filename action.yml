@@ -1,0 +1,70 @@
+name: "SteadyCI - GitHub Actions Health"
+description: "Scan workflows for security, maintenance, and cost issues. Uploads SARIF."
+author: "Sumit Rao"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  path:
+    description: "Repo root or workflows directory to scan"
+    required: false
+    default: "."
+  fail-on:
+    description: "Fail on: error, warn, or none"
+    required: false
+    default: "error"
+  config:
+    description: "Path to steadyci.toml / pyproject.toml"
+    required: false
+    default: ""
+  upload-sarif:
+    description: "Upload SARIF to GitHub code scanning"
+    required: false
+    default: "true"
+
+outputs:
+  score:
+    description: "Health score 0-100"
+    value: ${{ steps.scan.outputs.score }}
+  findings:
+    description: "Total findings"
+    value: ${{ steps.scan.outputs.findings }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install SteadyCI
+      shell: bash
+      run: pip install --quiet "steady-ci>=0.1.0" || pip install --quiet -e "${{ github.action_path }}"
+    - name: Scan
+      id: scan
+      shell: bash
+      run: |
+        ARGS=(scan "${{ inputs.path }}" --format json --fail-on "${{ inputs.fail-on }}")
+        if [ -n "${{ inputs.config }}" ]; then ARGS+=(--config "${{ inputs.config }}"); fi
+        steadyci "${ARGS[@]}" > steadyci.json || RC=$?
+        python3 - << 'PY' >> "$GITHUB_OUTPUT"
+        import json
+        d=json.load(open('steadyci.json'))
+        c=d['counts']
+        print(f"score={d['score']}")
+        print(f"findings={c['error']+c['warn']+c['info']}")
+        PY
+        exit ${RC:-0}
+    - name: Generate SARIF
+      if: always() && inputs.upload-sarif == 'true'
+      shell: bash
+      run: |
+        ARGS=(scan "${{ inputs.path }}" --format sarif --fail-on none)
+        if [ -n "${{ inputs.config }}" ]; then ARGS+=(--config "${{ inputs.config }}"); fi
+        steadyci "${ARGS[@]}" > steadyci.sarif || true
+    - name: Upload SARIF
+      if: always() && inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: steadyci.sarif
